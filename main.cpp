@@ -19,11 +19,40 @@ class Particle {
      std::string name;
      int color;
 
-     void update(float deltaTime) {
-                velocity += acceleration * deltaTime;
-                position += velocity * deltaTime;
+     void updatePosition(float deltaTime) {
+                position += velocity * deltaTime + 0.5f * acceleration * deltaTime * deltaTime;
             }    
+
+    void updateVelocity(float deltaTime, const glm::vec3& newAcceleration) {
+                velocity +=  0.5f * (acceleration + newAcceleration) * deltaTime; 
+                acceleration = newAcceleration;
+            }            
 };
+
+void resetParticles(std::vector<Particle>& particles, const float G) {
+    particles[0].position = glm::vec3(0.0f);
+    particles[0].velocity = glm::vec3(0.0f);
+    particles[0].mass = 10000.0f;
+
+    particles[1].position = glm::vec3(0.2f, 0.0f, 0.0f);
+    particles[1].mass = 1.0f;
+
+    particles[2].position = glm::vec3(-1.0f, 0.5f, 0.0f);
+    particles[2].mass = 58.0f;
+
+    particles[3].position = glm::vec3(-0.3f, 0.2f, 0.0f);
+    particles[3].mass = 317.0f;
+
+    // calculate orbital velocities around sun
+    for (int i = 1; i < particles.size(); ++i) {
+        glm::vec3 r = particles[i].position - particles[0].position;
+        float speed = sqrt(G * particles[0].mass / glm::length(r));
+        glm::vec3 dir(r.y, -r.x, 0.0f);
+        dir = glm::normalize(dir);
+        particles[i].velocity = dir * speed;
+    }
+}
+
 
 int main() {
 GLFWwindow *window; 
@@ -41,6 +70,12 @@ if(!window) {
 }
 
 glfwMakeContextCurrent(window);
+
+glMatrixMode(GL_PROJECTION);
+glLoadIdentity();
+glOrtho(-5.0, 5.0, -5.0, 5.0, -1.0, 1.0);  
+glMatrixMode(GL_MODELVIEW);
+glLoadIdentity();
 
 bool paused = false;
 
@@ -63,9 +98,9 @@ std::vector<Particle> particles(4);
 
         particles[0].name = "Sun";
         particles[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
-        particles[0].velocity = glm::vec3(0.0f, 1.0f, 0.f);
+        particles[0].velocity = glm::vec3(0.0f, 0.0f, 0.f);
         particles[0].acceleration = glm::vec3(0.0f);
-        particles[0].mass = 10000.0f; 
+        particles[0].mass = 1000.0f; 
 
         particles[1].name = "Mercury";
         particles[1].position = glm::vec3(0.2f, 0.0f, 0.0f);
@@ -78,21 +113,23 @@ std::vector<Particle> particles(4);
         particles[2].position = glm::vec3(-1.0f, 0.5f, 0.0f);
         particles[2].velocity = glm::vec3(0.5f, 0.0f, 0.f);
         particles[2].acceleration = glm::vec3(0.0f);
-        particles[2].mass = 58.0f; 
+        particles[2].mass = 10.0f; 
 
         particles[3].name = "Earth";
         particles[3].position = glm::vec3(-0.3f, 0.2f, 0.0f);
         particles[3].velocity = glm::vec3(2.0f, 0.5f, 0.f);
         particles[3].acceleration = glm::vec3(0.0f);
-        particles[3].mass = 317.0f; 
+        particles[3].mass = 20.0f; 
 
 // set clear color to black
 glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 glPointSize(10.0f);
 
 auto previousTime = std::chrono::high_resolution_clock::now();
-const float G = 0.001f;
+const float G = 0.05f;
+resetParticles(particles, G);
 
+/** 
 // Set Mercury's orbital velocity
 glm::vec3 r1 = particles[1].position - particles[0].position;
 float orbitalVelocity = sqrt(G * particles[0].mass / glm::length(r1)); 
@@ -112,6 +149,8 @@ float v3 = sqrt(G * particles[0].mass / glm::length(r3));
 glm::vec3 orbitalDirection3 (-r3.y, r3.x, 0.0f);
 particles[3].velocity = glm::normalize(orbitalDirection3) * v3;
 
+*/
+
 while(!glfwWindowShouldClose(window)) {
 
 // resest acceleration each frame 
@@ -119,46 +158,82 @@ while(!glfwWindowShouldClose(window)) {
       p.acceleration = glm::vec3(0.0f); // reset acceleration, as acceleration is accumalated from gravitational forces
     }
 
-    // calculate deltaTime
+    // calculate deltaTime  
      auto currentTime = std::chrono::high_resolution_clock::now();
+     float timeScale = 0.1f;
      float deltaTime = std::chrono::duration<float>(currentTime - previousTime).count();
-     deltaTime = glm::clamp(deltaTime, 0.0f, 0.33f); // max ~30fps
+     deltaTime = glm::clamp(deltaTime, 0.0f, 0.016f); // max ~60fps
+     deltaTime *= timeScale;
      previousTime = currentTime;
 
-     for(int i = 0; i < particles.size(); i++) {
-        for(int j = i + 1; j < particles.size(); j++) {
+     std::vector<glm::vec3> oldAcceleration(particles.size(), glm::vec3(0.0f));
+
+     // evaluate gravitational forces
+     for(int i = 0; i < particles.size(); ++i) {
+        for(int j = i + 1; j < particles.size(); ++j) {
+            if (i == j) continue;
+            
             glm::vec3 r = particles[j].position - particles[i].position; // evaluates the vector from i -> j
             float distance = glm::length(r);
+            if (distance < 1e-5f) continue; 
             glm::vec3 direction = glm::normalize(r);  // gives direction of the force
 
             float force = G * (particles[i].mass * particles[j].mass) / (distance * distance); // graviational force
+            glm::vec3 fVec = force * direction;
+
+            oldAcceleration[i] += (fVec / particles[i].mass); // a = F / m
+            oldAcceleration[j] -= (fVec / particles[j].mass); // a = F / m
+        }        
+    }
+    for (int i = 0; i < particles.size(); ++i) {
+       if (i == 0) continue;
+        particles[i].updatePosition(deltaTime);
+    }    
+     
+std::vector<glm::vec3> newAcceleration(particles.size(), glm::vec3(0.0f));
+
+    // evaluate gravitational forces
+     for(int i = 0; i < particles.size(); ++i) {
+        for(int j = i + 1; j < particles.size(); ++j) {
+            if (i == j) continue;
             
-            particles[i].acceleration += (force / particles[i].mass) * direction;  // a = F/m causes i to accelerate towards j
-            particles[j].acceleration -= (force / particles[j].mass) * direction;  // note that direction is opposite (Newton's 3rd law)
+            glm::vec3 r = particles[j].position - particles[i].position; // evaluates the vector from i -> j
+            float distance = glm::length(r);
+            if (distance < 1e-5f) continue; 
+            glm::vec3 direction = glm::normalize(r);  // gives direction of the force
+
+            float force = G * (particles[i].mass * particles[j].mass) / (distance * distance); // graviational force
+            glm::vec3 fVec = force * direction;
+
+            newAcceleration[i] += (fVec / particles[i].mass); // a = F / m
+            newAcceleration[j] -= (fVec / particles[j].mass);
         }        
     }
 
+    for (int i = 0; i < particles.size(); ++i) {
+            if (i == 0) continue;
+       particles[i].updateVelocity(deltaTime, newAcceleration[i]);
+    }    
+
   if(!paused) {
     for (auto& p : particles) {
-            p.update(deltaTime);
 
             float damping = 0.8f;
 
             // reflect off X bounds
-            if (p.position.x < -1.0f || p.position.x > 1.0f) {
-                p.velocity.x *= -1.0f * damping;
-                p.position.x = glm::clamp(p.position.x, -1.0f, 1.0f);
+            if (p.position.x < -2.0f || p.position.x > 2.0f) {
+                p.velocity.x *= -2.0f * damping;
+                p.position.x = glm::clamp(p.position.x, -2.0f, 2.0f);
             }
 
-               if (p.position.y < -1.0f || p.position.y > 1.0f) {
-                p.velocity.y *= -1.0f * damping;
-                p.position.y = glm::clamp(p.position.y, -1.0f, 1.0f);
+               if (p.position.y < -2.0f || p.position.y > 2.0f) {
+                p.velocity.y *= -2.0f * damping;
+                p.position.y = glm::clamp(p.position.y, -2.0f, 2.0f);
             }
 
             p.position.z = 0.0f;
         }
   } 
-
 
     glClear(GL_COLOR_BUFFER_BIT);
 
@@ -197,26 +272,19 @@ while(!glfwWindowShouldClose(window)) {
     }
 
     if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
-        particles[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
-        particles[0].velocity = glm::vec3(0.0f, 1.0f, 0.f);
-
-        particles[1].position = glm::vec3(0.2f, 0.0f, 0.0f);
-        particles[1].velocity = glm::vec3(1.0f, 2.0f, 0.f);
-
-        particles[2].position = glm::vec3(-1.0f, 0.5f, 0.0f);
-        particles[2].velocity = glm::vec3(0.5f, 0.0f, 0.f);
-
-        particles[3].position = glm::vec3(-0.3f, 0.2f, 0.0f);
-        particles[3].velocity = glm::vec3(2.0f, 0.5f, 0.f);
-
+        resetParticles(particles, G);
+        for (auto& p : particles) {
+            p.acceleration = glm::vec3(0.0f);
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(200)); // spam prevention
     }
 
     glfwSwapBuffers(window);
-}
-glfwDestroyWindow(window);
-glfwTerminate();
 
-return 0;
         }
-    
+    glfwDestroyWindow(window);
+    glfwTerminate();
+
+    return 0;
+
+    }
