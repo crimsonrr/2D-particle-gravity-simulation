@@ -9,6 +9,8 @@
 #include <thread>
 #include <cmath>
 #include <glm/common.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 class Particle {
     public:
@@ -32,27 +34,41 @@ class Particle {
 void resetParticles(std::vector<Particle>& particles, const float G) {
     particles[0].position = glm::vec3(0.0f);
     particles[0].velocity = glm::vec3(0.0f);
-    particles[0].mass = 10000.0f;
+    particles[0].mass = 1000.0f;
 
     particles[1].position = glm::vec3(0.2f, 0.0f, 0.0f);
     particles[1].mass = 1.0f;
 
     particles[2].position = glm::vec3(-1.0f, 0.5f, 0.0f);
-    particles[2].mass = 58.0f;
+    particles[2].mass = 0.815f;
 
     particles[3].position = glm::vec3(-0.3f, 0.2f, 0.0f);
-    particles[3].mass = 317.0f;
+    particles[3].mass = 0.055f;
 
     // calculate orbital velocities around sun
+
+    float ellipticalFactors[] = { 0.0f, 0.92f, 0.88f, 0.85f };
+
     for (int i = 1; i < particles.size(); ++i) {
         glm::vec3 r = particles[i].position - particles[0].position;
-        float speed = sqrt(G * particles[0].mass / glm::length(r));
-        glm::vec3 dir(r.y, -r.x, 0.0f);
+        float circularSpeed = sqrt(G * particles[0].mass / glm::length(r));
+
+        float ellipticalFactor = 0.85f + 0.05f * i;
+        float speed = circularSpeed * ellipticalFactors[i];
+
+        glm::vec3 dir(r.y, -r.x, 0.02f * i);
         dir = glm::normalize(dir);
         particles[i].velocity = dir * speed;
     }
 }
 
+float radius = 5.0f;
+float yaw = -90.0f; // horizontal angle, in degrees
+float pitch = 0.0f;
+
+glm::vec3 cameraPos;
+glm::vec3 cameraFront; // float around the sun (like a target)
+glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
 
 int main() {
 GLFWwindow *window; 
@@ -71,12 +87,6 @@ if(!window) {
 
 glfwMakeContextCurrent(window);
 
-glMatrixMode(GL_PROJECTION);
-glLoadIdentity();
-glOrtho(-5.0, 5.0, -5.0, 5.0, -1.0, 1.0);  
-glMatrixMode(GL_MODELVIEW);
-glLoadIdentity();
-
 bool paused = false;
 
 // initialize GLEW after content creation
@@ -88,7 +98,12 @@ if(err != GLEW_OK) {
     return -1;
 }
 
+glEnable(GL_DEPTH_TEST);
+
 std::vector<Particle> particles(4);
+
+cameraFront = particles[0].position;
+
 
     for (auto& p : particles) {
       p.acceleration = glm::vec3(0.0f); // reset acceleration, as acceleration is accumalated from gravitational forces
@@ -98,61 +113,36 @@ std::vector<Particle> particles(4);
 
         particles[0].name = "Sun";
         particles[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
-        particles[0].velocity = glm::vec3(0.0f, 0.0f, 0.f);
         particles[0].acceleration = glm::vec3(0.0f);
-        particles[0].mass = 1000.0f; 
+        particles[0].mass = 1.0f;  // Sun = 1 solar mass 
 
         particles[1].name = "Mercury";
-        particles[1].position = glm::vec3(0.2f, 0.0f, 0.0f);
-        particles[1].velocity = glm::vec3(1.0f, 2.0f, 0.f);
+        particles[1].position = glm::vec3(0.39f, 0.0f, 0.0f); // 0.39 AU from sun
         particles[1].acceleration = glm::vec3(0.0f);
-        particles[1].mass = 1.0f; 
-
+        particles[1].mass = 3.3e-6f; 
 
         particles[2].name = "Venus";
         particles[2].position = glm::vec3(-1.0f, 0.5f, 0.0f);
-        particles[2].velocity = glm::vec3(0.5f, 0.0f, 0.f);
         particles[2].acceleration = glm::vec3(0.0f);
-        particles[2].mass = 10.0f; 
+        particles[2].mass = 4.87e-6f; 
 
         particles[3].name = "Earth";
-        particles[3].position = glm::vec3(-0.3f, 0.2f, 0.0f);
-        particles[3].velocity = glm::vec3(2.0f, 0.5f, 0.f);
+        particles[3].position = glm::vec3(0.72f, 0.2f, 0.0f);
         particles[3].acceleration = glm::vec3(0.0f);
-        particles[3].mass = 20.0f; 
+        particles[3].mass = 5.97e-6f; 
 
 // set clear color to black
 glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 glPointSize(10.0f);
 
 auto previousTime = std::chrono::high_resolution_clock::now();
-const float G = 0.05f;
+const float G = 4.0f * M_PI * M_PI;
 resetParticles(particles, G);
-
-/** 
-// Set Mercury's orbital velocity
-glm::vec3 r1 = particles[1].position - particles[0].position;
-float orbitalVelocity = sqrt(G * particles[0].mass / glm::length(r1)); 
-glm::vec3 orbitalDirection (-r1.y, r1.x, 0.0f);
-orbitalDirection = glm::normalize(orbitalDirection);
-particles[1].velocity = orbitalDirection * orbitalVelocity;
-
-// Venus 
-glm::vec3 r2 = particles[2].position - particles[0].position;
-float v2 = sqrt(G * particles[0].mass / glm::length(r2)); 
-glm::vec3 orbitalDirection2 (-r2.y, r2.x, 0.0f);
-particles[2].velocity = glm::normalize(orbitalDirection2) * v2;
-
-// Earth
-glm::vec3 r3 = particles[3].position - particles[0].position;
-float v3 = sqrt(G * particles[0].mass / glm::length(r3)); 
-glm::vec3 orbitalDirection3 (-r3.y, r3.x, 0.0f);
-particles[3].velocity = glm::normalize(orbitalDirection3) * v3;
-
-*/
 
 while(!glfwWindowShouldClose(window)) {
 
+
+ std::cout << "CameraPos: " << glm::to_string(cameraPos) << " CameraFront: " << glm::to_string(cameraFront) << std::endl;
 // resest acceleration each frame 
     for (auto& p : particles) {
       p.acceleration = glm::vec3(0.0f); // reset acceleration, as acceleration is accumalated from gravitational forces
@@ -160,11 +150,25 @@ while(!glfwWindowShouldClose(window)) {
 
     // calculate deltaTime  
      auto currentTime = std::chrono::high_resolution_clock::now();
-     float timeScale = 0.1f;
+     float timeScale = 0.05f;
      float deltaTime = std::chrono::duration<float>(currentTime - previousTime).count();
-     deltaTime = glm::clamp(deltaTime, 0.0f, 0.016f); // max ~60fps
+     deltaTime = glm::clamp(deltaTime, 0.0f, 0.008f); // max ~60fps
      deltaTime *= timeScale;
      previousTime = currentTime;
+
+    /*
+     const float cameraSpeed = 2.5f * deltaTime; // adjust speed
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+            cameraPos += cameraSpeed * cameraFront;         
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+            cameraPos -= cameraSpeed * cameraFront;  
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+            cameraPos -= glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+            cameraPos += glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;   
+        if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+            cameraPos += cameraFront * cameraSpeed;
+    */ 
 
      std::vector<glm::vec3> oldAcceleration(particles.size(), glm::vec3(0.0f));
 
@@ -217,48 +221,82 @@ std::vector<glm::vec3> newAcceleration(particles.size(), glm::vec3(0.0f));
 
   if(!paused) {
     for (auto& p : particles) {
+        if(glm::length(p.position) > 100.0f) {
+            p.velocity = glm::vec3(0.0f);
+        }
 
-            float damping = 0.8f;
-
-            // reflect off X bounds
-            if (p.position.x < -2.0f || p.position.x > 2.0f) {
-                p.velocity.x *= -2.0f * damping;
-                p.position.x = glm::clamp(p.position.x, -2.0f, 2.0f);
-            }
-
-               if (p.position.y < -2.0f || p.position.y > 2.0f) {
-                p.velocity.y *= -2.0f * damping;
-                p.position.y = glm::clamp(p.position.y, -2.0f, 2.0f);
-            }
-
-            p.position.z = 0.0f;
         }
   } 
 
-    glClear(GL_COLOR_BUFFER_BIT);
+// clamp pitch to prevent gimbal lock
+pitch = glm::clamp(pitch, -89.0f, 89.0f);
+
+// convert spherical coordinates to caresian
+float yawRad = glm::radians(yaw);
+float pitchRad = glm::radians(pitch);
+
+cameraPos.x = radius * cos(pitchRad) * cos(yawRad);
+cameraPos.y = radius * sin(pitchRad);
+cameraPos.z = radius * cos(pitchRad) * sin(yawRad);
+
+// always face the center (sun)
+glm::vec3 cameraDirection = glm::normalize(cameraFront - cameraPos);
+
+glm::mat4 view = glm::lookAt(cameraPos, cameraFront, cameraUp);
+
+glm::mat4 projection = glm::perspective(glm::radians(75.0f), 640.0f / 480.0f, 0.1f, 100.0f);
+
+glMatrixMode(GL_PROJECTION);
+glLoadMatrixf(glm::value_ptr(projection));
+
+glMatrixMode(GL_MODELVIEW);
+glLoadMatrixf(glm::value_ptr(view));
+
+glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glBegin(GL_POINTS);
     
     // Red particle (Alpha)
     glColor3f(1.0f, 0.0f, 0.0f);
-    glVertex2f(particles[0].position.x, particles[0].position.y);    
+    glVertex3f(particles[0].position.x, particles[0].position.y, particles[0].position.z);    
 
     // Yellow particle (Beta)
     glColor3f(1.0f, 1.0f, 0.0f);
-    glVertex2f(particles[1].position.x, particles[1].position.y);    
+    glVertex3f(particles[1].position.x, particles[1].position.y, particles[1].position.z);    
 
     // Blue particle (Gamma)
     glColor3f(0.0f, 0.0f, 1.0f);
-    glVertex2f(particles[2].position.x, particles[2].position.y);    
+    glVertex3f(particles[2].position.x, particles[2].position.y, particles[2].position.z);    
 
     // Green particle (Delta)
     glColor3f(0.0f, 1.0f, 0.0f);
-    glVertex2f(particles[3].position.x, particles[3].position.y);    
+    glVertex3f(particles[3].position.x, particles[3].position.y, particles[3].position.z);    
 
 
     glEnd();
 
     glfwPollEvents();
+
+    const float angleSpeed = 50.0f * deltaTime;
+    const float zoomSpeed = 5.0f * deltaTime;
+
+    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+        pitch += angleSpeed;
+    if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+        pitch -= angleSpeed;
+    if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
+        yaw -= angleSpeed;
+    if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+        yaw += angleSpeed;
+    
+    // zoom in/out
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        radius -= zoomSpeed;
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        radius += zoomSpeed;
+
+    // clamp zoom to prevent flipping
+    radius = glm::clamp(radius, 1.0f, 100.0f);    
 
     // Escape to close the window
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
@@ -288,3 +326,4 @@ std::vector<glm::vec3> newAcceleration(particles.size(), glm::vec3(0.0f));
     return 0;
 
     }
+    
